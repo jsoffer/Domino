@@ -1,0 +1,27 @@
+Simulador de dominó. Ejercicio de manejo de hilos, semáforos y mutexes.
+
+Compilar: clang++ (g++) -pthread domino.cc -o domin
+
+Uso: ./domino
+
+Muestra la distribución de (N en 2) piezas entre PLAYER jugadores, seguida de
+la selección de piezas por jugador hasta que uno agota material o un bloqueo
+ocurre. El formato es:
+
+player2 [14 3]   (10,14) <-- pieza jugada
+^          ^
+#jugador   |
+     valores de extremos
+
+Al finalizar muestra el marcador:
+
+player 0: -66
+player 1: -20
+player 2: -56
+player 3: -71
+
+En este caso ocurrió un bloqueo y finalizó. Si el marcador muestra un cero,
+ese jugador agotó sus piezas.
+
+La inteligencia artificial de los jugadores se puede manipular modificando la
+función "escogefifo" y pasándola como parámetro en arg->fnc en pthread_create.
