@@ -16,7 +16,7 @@
 using namespace std;
 
 #define N 15
-#define PLAYERS 4
+#define PLAYERS 8
 
 //#define next(x) ((x+PLAYERS-1)%PLAYERS)
 #define next(x) ((x+1)%PLAYERS)
@@ -57,7 +57,10 @@ void * worker (void * arg){
     //espera.tv_nsec = 324545633;
 
     while(1){
+
         sem_wait(mutexes + offset);
+
+        if(!(random()%6)){sleep(1);}
 
         // región crítica (para multi-metahilos)
 
@@ -69,7 +72,7 @@ void * worker (void * arg){
             sem_post(mutexes + next(offset));
             break;
         }
-        //nanosleep(&espera,NULL);
+        nanosleep(&espera,NULL);
         cout << "player" << offset;
         if(mano.empty()){ // no debe suceder, 'fin' debe finalizar antes
             cout << " vacío\n";
@@ -146,6 +149,7 @@ int main() {
     cout << "\n";
 
     sem_post(mutexes+inicial(players)); // desbloquea al primer jugador; buscar al (6,6)
+    sem_post(mutexes+(inicial(players)+PLAYERS/2)%PLAYERS); // creando meta-hilos
     for(i = 0; i < PLAYERS; ++i){
         pthread_join(threads[i], NULL);
     }
