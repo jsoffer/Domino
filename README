@@ -1,10 +1,10 @@
 Simulador de dominó. Ejercicio de manejo de hilos, semáforos y mutexes.
 
-Compilar: clang++ (g++) -pthread domino.cc -o domin
+Compilar: clang++ (g++) -pthread domino.cc -o domino
 
 Uso: ./domino
 
-Muestra la distribución de (N en 2) piezas entre PLAYER jugadores, seguida de
+Muestra la distribución de (N+1 en 2) piezas entre PLAYER jugadores, seguida de
 la selección de piezas por jugador hasta que uno agota material o un bloqueo
 ocurre. El formato es:
 
