@@ -6,7 +6,6 @@
 #include <pthread.h>
 #include <semaphore.h>
 
-
 #include <iostream>
 #include <set>
 #include <vector>
@@ -25,14 +24,14 @@ typedef pair <int,int> intpair;
 typedef set <intpair> pairset;
 typedef vector <intpair> pairvector;
 
-void * worker (void *);
-pairset * fichas();
-intpair actualiza(intpair);
-int inicial(pairset *);
+void * player (void *);
+pairset * draw();
+intpair update(intpair);
+int starter(pairset *);
 int islocked();
 int points(pairset);
 
-intpair escogefifo(pairset);
+intpair choosesmaller(pairset);
 
 /* Syncronization */
 
@@ -44,8 +43,10 @@ pthread_mutex_t jugando;
 int fin = 0;
 int score[PLAYERS] = {0};
 
-pairvector mesa;
-intpair punta = intpair (N-1,N-1); // inicial, para pegar el (6,6) verdadero del primer jugador
+pairvector table;
+
+
+intpair edges = intpair (N-1,N-1);
 
 /* Arguments passed to the thread */
 
@@ -75,15 +76,16 @@ int main() {
     param * p;
     p = new param [PLAYERS];
 
-    players = fichas();
+    players = draw();
 
     for(i = 0; i < PLAYERS; ++i){
         (p+i)->x = i;
         (p+i)->xs = players+i;
-        (p+i)->fnc = escogefifo;
-        pthread_create(&threads[i], NULL, worker, (void *) (p+i));
+        (p+i)->fnc = choosesmaller; // don't set it here to have multiple AI
+        pthread_create(&threads[i], NULL, player, (void *) (p+i));
     }
 
+    /* show the players' pieces */
     for(i = 0; i < PLAYERS; ++i){
         cout << "\n--- PLAYER " << i << " ---\n";
         for(it = (players + i)->begin(); it != (players + i)->end(); ++it){
@@ -92,12 +94,19 @@ int main() {
     }
     cout << "\n";
 
-    sem_post(mutexes+inicial(players)); // desbloquea al primer jugador; buscar al (6,6)
-    sem_post(mutexes+(inicial(players)+PLAYERS/2)%PLAYERS); // creando meta-hilos
+    // unlocks the player with the highest piece
+    sem_post(mutexes+starter(players));
+
+    // for multiple meta-threads of execution, unlock someone else too
+    // if only one meta-thread, the player on the right will always play next
+    // if many, it has a chance of one of them going faster (maybe fun)
+    sem_post(mutexes+(starter(players)+PLAYERS/2)%PLAYERS);
+
     for(i = 0; i < PLAYERS; ++i){
         pthread_join(threads[i], NULL);
     }
 
+    // all threads ended, show score
     for(i = 0; i < PLAYERS; ++i){
         cout << "player " << i << ": -" << score[i] << endl;
     }
@@ -107,10 +116,11 @@ int main() {
     delete[] p;
     delete[] threads;
     delete[] mutexes;
+
     return 0;
 }
 
-pairset * fichas() {
+pairset * draw() {
     int i, j;
     time_t seed;
     pairset * players;
@@ -127,8 +137,8 @@ pairset * fichas() {
     }
 
     time(&seed);
-    srandom(seed); // para 'random'
-    srand(seed); // para 'shuffle'
+    srandom(seed); // seeds 'random'
+    srand(seed); // seeds 'random_shuffle'
     random_shuffle(ys.begin(), ys.end());
 
     for(it = ys.begin(), i = 0; it != ys.end(); ++it, ++i){
@@ -136,11 +146,10 @@ pairset * fichas() {
     }
 
     return players;
-
-    return 0;
 }
 
-int inicial(pairset * xs){
+/* returns the number of player with the highest piece (0-indexed) */
+int starter(pairset * xs){
     int i;
     for(i = 0; i < PLAYERS; ++i){
         if ((xs+i)->count(intpair (N-1,N-1))){
@@ -148,7 +157,7 @@ int inicial(pairset * xs){
         }
     }
 
-    return -1; // no debe suceder
+    return -1; // will never happen unless something very wrong
 }
 
 int points(pairset xs){
@@ -161,21 +170,23 @@ int points(pairset xs){
     return ret;
 }
 
-// requiere exclusión mutua
-intpair actualiza(intpair x){
-    // en orden; en el futuro, definir de qué lado jugar doble opción
-    // FIXME
-    intpair ret = punta;
+/* returns the new open values of the game */
+/* RUNS INSIDE CRITICAL REGION (while using the table) */
+intpair update(intpair x){
+    /* If the same piece can be played both ways it will go to the
+       first available place; FIXME */
 
-    if(punta.first == x.first || punta.second == x.first){
-        if(punta.first == x.first){
+    intpair ret = edges;
+
+    if(edges.first == x.first || edges.second == x.first){
+        if(edges.first == x.first){
             ret.first = x.second;
         } else {
             ret.second = x.second;
         }
     }
-    if(punta.first == x.second || punta.second == x.second){
-        if(punta.first == x.second){
+    if(edges.first == x.second || edges.second == x.second){
+        if(edges.first == x.second){
             ret.first = x.first;
         } else {
             ret.second = x.first;
@@ -185,28 +196,29 @@ intpair actualiza(intpair x){
     return ret;
 }
 
+/* evaluates if, for both open values, every playable piece is already
+   on the table (maybe slow) */
 int islocked(){
-    // pregunta si, para ambas puntas, todas las posibles piezas están en la mesa
-    // posiblemente lento, analizar
     int izq,der;
     izq = N;
     der = N;
 
-    for(pairvector :: iterator it = mesa.begin(); it != mesa.end(); ++it){
-        if(it->first == punta.first || it->second == punta.first){ --izq; }
-        if(it->first == punta.second || it->second == punta.second){ --der; }
+    for(pairvector :: iterator it = table.begin(); it != table.end(); ++it){
+        if(it->first == edges.first || it->second == edges.first){ --izq; }
+        if(it->first == edges.second || it->second == edges.second){ --der; }
     }
 
     return (!(izq > 0 || der > 0));
 }
 
-void * worker (void * arg){
+/* threads' running funcion */
+void * player (void * arg){
     int offset = ((param *) arg) -> x;
     pairset mano = *(((param *) arg) -> xs);
 
-    // recibe la función "escoger" como parámetro
-    // para que cada hilo tenga su propio AI
-    intpair (*escoge)(pairset) = ((param *) arg) -> fnc;
+    // receives a "choosing" function
+    // to allow a different AI on each thread
+    intpair (*choose)(pairset) = ((param *) arg) -> fnc;
 
     struct timespec espera = {0};
     espera.tv_nsec= (random() % 1000000000);
@@ -218,11 +230,11 @@ void * worker (void * arg){
 
         if(!(random()%6)){sleep(1);}
 
-        // región crítica (para multi-metahilos)
+        /* CRITICAL REGION: this player is using the table */
 
         pthread_mutex_lock(&jugando);
         if (fin || islocked()) {
-            cout << "[" << punta.first << " " << punta.second << "]" << endl;
+            cout << "[" << edges.first << " " << edges.second << "]" << endl;
             score[offset] = points(mano);
             pthread_mutex_unlock(&jugando);
             sem_post(mutexes + next(offset));
@@ -230,67 +242,69 @@ void * worker (void * arg){
         }
         nanosleep(&espera,NULL);
         cout << "player" << offset;
-        if(mano.empty()){ // no debe suceder, 'fin' debe finalizar antes
-            cout << " vacío\n";
+
+        cout << " [" << edges.first << " " << edges.second << "] ";
+        intpair t = choose(mano); // this player's AI function
+        if( edges.first == t.first ||
+                edges.second == t.second ||
+                edges.first == t.second ||
+                edges.second == t.first) {
+
+            // the current player puts a piece on the table here
+            mano.erase(t);
+            table.push_back(t);
+            edges = update(t);
+
+            cout << " " << " (" << t.first << "," << t.second << ")\n";
+        } else {
+            cout << " pass. " << endl;
+        }
+
+        /* You have just played, and you won */
+        if(mano.empty()){
+            fin = 1;
             pthread_mutex_unlock(&jugando);
             sem_post(mutexes + next(offset));
             break;
-        } else {
-            cout << " [" << punta.first << " " << punta.second << "] ";
-            intpair t = escoge(mano);
-            //mano.pop_back(); // si t, mano = retira(mano,t); otro, pass
-            if( punta.first == t.first ||
-                    punta.second == t.second ||
-                    punta.first == t.second ||
-                    punta.second == t.first) {
-                mano.erase(t); // si 'escoge' no decide, no lo encuentra, y no retira
-                mesa.push_back(t);
-                // modificar 'punta'
-                punta = actualiza(t);
-                cout << " " << " (" << t.first << "," << t.second << ")\n";
-            } else {
-                cout << " jugador " << offset << " pasa. " << endl;
-            }
-
-            if(mano.empty()){
-                fin = 1;
-                pthread_mutex_unlock(&jugando);
-                sem_post(mutexes + next(offset));
-                break;
-            }
         }
-        pthread_mutex_unlock(&jugando);
-        // fin región crítica
 
+        pthread_mutex_unlock(&jugando);
+
+        /* END CRITICAL REGION */
+
+        /* Tell the player to your right to go on */
         sem_post(mutexes + next(offset));
-        //sleep(1);
     }
 
     return NULL;
 }
 
-intpair escogefifo(pairset xs){
+/* RUNS INSIDE CRITICAL REGION (while using the table) */
+intpair choosesmaller(pairset xs){
 
-    if(xs.count(intpair (N-1,N-1))){return intpair (N-1,N-1);}
+    /* You have the highest piece; play first ̣*/
+    if(xs.count(intpair (N-1,N-1))){ return intpair (N-1,N-1); }
 
-    pairset candidatos;
+    pairset candidates;
     pairset :: iterator it;
 
+    /* Put on a set only the pieces that you own and that can be played */
     for(it = xs.begin(); it != xs.end(); ++it){
-        if(it->first == punta.first ||
-                it->first == punta.second ||
-                it->second == punta.first ||
-                it->second == punta.second){
-            candidatos.insert(*it);
+        if(it->first == edges.first ||
+                it->first == edges.second ||
+                it->second == edges.first ||
+                it->second == edges.second){
+            candidates.insert(*it);
         }
     }
 
-    if(candidatos.empty()){
+    /* Nothing can be played, anything you return will turn into "pass" */
+    if(candidates.empty()){
         return intpair (-1,-1);
     }
 
-    /////////////////// EDITAR ALGORITMO AQUÍ ///////////////////////
+    /////////////////// ADD OWN ALGORITHM HERE ///////////////////////
 
-    return *(candidatos.lower_bound(intpair (0,0)));
+    return *(candidates.lower_bound(intpair (0,0)));
 }
 
