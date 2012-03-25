@@ -14,8 +14,8 @@
 
 using namespace std;
 
-#define N 15
-#define PLAYERS 8
+#define N 63
+#define PLAYERS 32
 
 //#define next(x) ((x+PLAYERS-1)%PLAYERS)
 #define next(x) ((x+1)%PLAYERS)
@@ -100,7 +100,7 @@ int main() {
     // for multiple meta-threads of execution, unlock someone else too
     // if only one meta-thread, the player on the right will always play next
     // if many, it has a chance of one of them going faster (maybe fun)
-    sem_post(mutexes+(starter(players)+PLAYERS/2)%PLAYERS);
+    // sem_post(mutexes+(starter(players)+PLAYERS/2)%PLAYERS);
 
     for(i = 0; i < PLAYERS; ++i){
         pthread_join(threads[i], NULL);
@@ -228,7 +228,7 @@ void * player (void * arg){
 
         sem_wait(mutexes + offset);
 
-        if(!(random()%6)){sleep(1);}
+        //if(!(random()%6)){sleep(1);}
 
         /* CRITICAL REGION: this player is using the table */
 
@@ -240,7 +240,7 @@ void * player (void * arg){
             sem_post(mutexes + next(offset));
             break;
         }
-        nanosleep(&espera,NULL);
+        //nanosleep(&espera,NULL);
         cout << "player" << offset;
 
         cout << " [" << edges.first << " " << edges.second << "] ";
@@ -282,6 +282,8 @@ void * player (void * arg){
 /* RUNS INSIDE CRITICAL REGION (while using the table) */
 intpair choosesmaller(pairset xs){
 
+    intpair ret;
+
     /* You have the highest piece; play first ̣*/
     if(xs.count(intpair (N-1,N-1))){ return intpair (N-1,N-1); }
 
@@ -305,6 +307,14 @@ intpair choosesmaller(pairset xs){
 
     /////////////////// ADD OWN ALGORITHM HERE ///////////////////////
 
-    return *(candidates.lower_bound(intpair (0,0)));
-}
+    ret = *(candidates.lower_bound(intpair (0,0)));
 
+    //////////////////////////// END ALGORITHM ///////////////////////
+
+    /* do not try to wreck the edges by returning something you don't have */
+    if(candidates.count(ret) > 0) {
+        return ret;
+    } else {
+        return intpair (-1,-1);
+    }
+}
