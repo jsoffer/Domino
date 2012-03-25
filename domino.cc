@@ -192,12 +192,81 @@ int islocked(){
     izq = N;
     der = N;
 
-    for(intvector :: iterator it = mesa.begin(); it != mesa.end(); ++it){
+    for(pairvector :: iterator it = mesa.begin(); it != mesa.end(); ++it){
         if(it->first == punta.first || it->second == punta.first){ --izq; }
         if(it->first == punta.second || it->second == punta.second){ --der; }
     }
 
     return (!(izq > 0 || der > 0));
+}
+
+void * worker (void * arg){
+    int offset = ((param *) arg) -> x;
+    pairset mano = *(((param *) arg) -> xs);
+
+    // recibe la función "escoger" como parámetro
+    // para que cada hilo tenga su propio AI
+    intpair (*escoge)(pairset) = ((param *) arg) -> fnc;
+
+    struct timespec espera = {0};
+    espera.tv_nsec= (random() % 1000000000);
+    //espera.tv_nsec = 324545633;
+
+    while(1){
+
+        sem_wait(mutexes + offset);
+
+        if(!(random()%6)){sleep(1);}
+
+        // región crítica (para multi-metahilos)
+
+        pthread_mutex_lock(&jugando);
+        if (fin || islocked()) {
+            cout << "[" << punta.first << " " << punta.second << "]" << endl;
+            score[offset] = points(mano);
+            pthread_mutex_unlock(&jugando);
+            sem_post(mutexes + next(offset));
+            break;
+        }
+        nanosleep(&espera,NULL);
+        cout << "player" << offset;
+        if(mano.empty()){ // no debe suceder, 'fin' debe finalizar antes
+            cout << " vacío\n";
+            pthread_mutex_unlock(&jugando);
+            sem_post(mutexes + next(offset));
+            break;
+        } else {
+            cout << " [" << punta.first << " " << punta.second << "] ";
+            intpair t = escoge(mano);
+            //mano.pop_back(); // si t, mano = retira(mano,t); otro, pass
+            if( punta.first == t.first ||
+                    punta.second == t.second ||
+                    punta.first == t.second ||
+                    punta.second == t.first) {
+                mano.erase(t); // si 'escoge' no decide, no lo encuentra, y no retira
+                mesa.push_back(t);
+                // modificar 'punta'
+                punta = actualiza(t);
+                cout << " " << " (" << t.first << "," << t.second << ")\n";
+            } else {
+                cout << " jugador " << offset << " pasa. " << endl;
+            }
+
+            if(mano.empty()){
+                fin = 1;
+                pthread_mutex_unlock(&jugando);
+                sem_post(mutexes + next(offset));
+                break;
+            }
+        }
+        pthread_mutex_unlock(&jugando);
+        // fin región crítica
+
+        sem_post(mutexes + next(offset));
+        //sleep(1);
+    }
+
+    return NULL;
 }
 
 intpair escogefifo(pairset xs){
