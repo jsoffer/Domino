@@ -280,6 +280,7 @@ void * player (void * arg){
 }
 
 /* RUNS INSIDE CRITICAL REGION (while using the table) */
+/* say which piece do you want to play; set it at 'ret' */
 intpair choosesmaller(pairset xs){
 
     intpair ret;
